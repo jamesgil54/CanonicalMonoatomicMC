@@ -18,10 +18,10 @@ R. K. Lindsey (2023)
 
 using namespace std;
 
-double  nav     = 6.02*pow(10.0,23);        // Avagadro's number
-double  cm2m    = 1.0/100.0;                // x cm * cm2m = m
-double  A2m     = 1.0/pow(10.0,10);         // x Angstrom * A to m = m    
-double  kB      = 1.380649*pow(10,-23.0);   // Units: J⋅K^−1 
+const double  nav     = 6.02*pow(10.0,23);        // Avagadro's number
+const double  cm2m    = 1.0/100.0;                // x cm * cm2m = m
+const double  A2m     = 1.0/pow(10.0,10);         // x Angstrom * A to m = m    
+const double  kB      = 1.380649*pow(10,-23.0);   // Units: J⋅K^−1 
 
 struct xyz
 {
@@ -38,13 +38,35 @@ double get_dist(const xyz & a1, const xyz & a2, const xyz & boxdim, xyz & rij_ve
     
     The function should return the scalar distance.
     */
+
+    double dx = (a2.x-a1.x) - nint((a2.x-a1.x)/boxdim.x) * boxdim.x;
+    double dy = (a2.y-a1.y) - nint((a2.y-a1.y)/boxdim.y) * boxdim.y;
+    double dz = (a2.z-a1.z) - nint((a2.z-a1.z)/boxdim.z) * boxdim.z;
+
+    rij_vec.x = dx;
+    rij_vec.y = dy;
+    rij_vec.z = dz;
+
+    double distance = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dy, 2));
+
+    return distance;
 }
 
+//TODO: FIX THIS:
 double update_max_displacement(double fraction_accepted, double boxdim, double max_displacement)
 {
     /* Write code to update the maximum displacement based on current acceptance crtieria. 
     The function should return the the new maximum displacement.
     */
+    if(fraction_accepted > 0.5){
+        max_displacement =  max_displacement*1.2;
+    }
+
+    if(fraction_accepted < 0.5){
+        max_displacement = max_displacement*0.8;
+    }
+
+    return max_displacement;
 }
 
 class system_coordinates
@@ -198,6 +220,13 @@ double LJ_model::get_eij(double rij)
     It should account for the user-specified cutoff distance.
     The function should return the computed energy.
     */
+    if(rij >= rcut){
+        return 0;
+    }
+
+    sigmaOverR = sigma/rij;
+
+    return 4*epsilon*(pow(sigmaOverR, 12)-pow(sigmaOverR, 6));
 }
 
 void LJ_model::get_fij(double rij, const xyz & rij_vec, xyz & fij)
@@ -205,8 +234,21 @@ void LJ_model::get_fij(double rij, const xyz & rij_vec, xyz & fij)
     /* Write code to compute the Lennard Jones force between the two atoms.
     It should account for the user-specified cutoff distance.
     The function should update the the force and distance vectors directly
+    // Q: how should the distance vector be updated?
     The function should not return anything.
     */
+
+    if(rij >== rcut){
+        fij.x = 0;
+        fij.y = 0;
+        fij.z = 0;
+        return;
+    }
+
+    //Force is the derivative of energy with respect to R!
+    fij.x = 4*epsilon*((-12*pow(sigma, 12)*pow(rij_vec.x, -13))+(6*pow(sigma, 6)*pow(rij_vec.x, -7)));
+    fij.y = 4*epsilon*((-12*pow(sigma, 12)*pow(rij_vec.y, -13))+(6*pow(sigma, 6)*pow(rij_vec.y, -7)));
+    fij.z = 4*epsilon*((-12*pow(sigma, 12)*pow(rij_vec.z, -13))+(6*pow(sigma, 6)*pow(rij_vec.z, -7)));
 
     return;
 }
@@ -225,6 +267,30 @@ void LJ_model::get_single_particle_contributions(const vector<xyz> & coords, int
     static double rij;
     static xyz    rij_vec;
 
+    for (int i = 0; i < 0; i++)
+    {
+        if(i == coords[selected_atom]){
+            continue;
+        }
+
+        rij = get_dist(coords[selected_atom], coords[i], boxdim, rij_vec);
+        energy = get_eij(rij);
+        energy_selected += energy;
+
+        xyz force_vec
+
+        get_fij(dist, rij_vec, force_vec);
+        force.x += force_vec.x;
+        force.y += force_vec.y;
+        force.z += force_vec.z;
+
+        stress_xx = force_vec.x * rij_vec.x;
+        stress_yy = force_vec.y * rij_vec.y;
+        stress_zz = force_vec.z * rij_vec.z;
+        stress_selected.x += stress_xx;
+        stress_selected.y += stress_yy;
+        stress_selected.z += stress_zz;
+    }
     /* Write code to determine the contributions to the total system energy, forces, and stresses due to the selected atom.
     Self interactions should not be included.
 
@@ -294,8 +360,8 @@ int main(int argc, char* argv[])
     system_coordinates system(natoms, atmtyp, density, molmass);
     system.generate_coords();
     
-    cout << "# reduc. density (rho*): " << /*write this*/ << endl;
-    cout << "# reduc. temp (T*):      " << /*write this*/ << endl;
+    cout << "# reduc. density (rho*): " << redden << endl;
+    cout << "# reduc. temp (T*):      " << (temp*kB)/epsilon << endl;
 
     // Intialize the model - arguments are sigma (Angstroms), epsilon (K), and outer cutoff (Angstroms)
     
@@ -328,6 +394,23 @@ int main(int argc, char* argv[])
     {
         for (int j=i+1; j<system.natoms; j++)
         {
+            rij = get_dist(coords[i], coords[j], boxdim, rij_vec);
+            energy_ij = get_eij(rij);
+            energy+= energy_ij;
+
+            xyz force_vec;
+
+            get_fij(dist, rij_vec, force_vec);
+            force.x += force_vec.x;
+            force.y += force_vec.y;
+            force.z += force_vec.z;
+
+            stress_xx = force_vec.x * rij_vec.x;
+            stress_yy = force_vec.y * rij_vec.y;
+            stress_zz = force_vec.z * rij_vec.z;
+            stress_selected.x += stress_xx;
+            stress_selected.y += stress_yy;
+            stress_selected.z += stress_zz;
             // Get the scalar distance and distance vector between atoms, using MIC
 
             /*write this*/

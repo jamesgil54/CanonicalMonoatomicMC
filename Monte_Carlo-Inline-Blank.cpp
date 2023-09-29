@@ -13,14 +13,14 @@ R. K. Lindsey (2023)
 #include<vector>
 #include<cmath>
 
-#include "MersenneTwiser.h"
+#include "MersenneTwiser.h" //random number generator
 
 using namespace std;
 
 double  nav     = 6.02*pow(10.0,23);        // Avagadro's number
-double  cm2m    = 1.0/100.0;                // x cm * cm2m = m
-double  A2m     = 1.0/pow(10.0,10);         // x Angstrom * A to m = m    
-double  kB      = 1.380649*pow(10,-23.0);   // Units: J⋅K^−1 
+double  cm2m    = 1.0/100.0;                // x cm * cm2m = m (cm to meters)
+double  A2m     = 1.0/pow(10.0,10);         // x Angstrom * A to m = m    (angstroms to meters)
+double  kB      = 1.380649*pow(10,-23.0);   // Units: J⋅K^−1 (boltzmann constant)
 
 struct xyz
 {
@@ -29,6 +29,7 @@ struct xyz
     double z;
 };
 
+//a1: coordinate for your i atom, a2 is your coordinate for the j atom in an ij pair
 double get_dist(const xyz & a1, const xyz & a2, const xyz & boxdim, xyz & rij_vec)
 {
     /* Write code to calculate the distance vector and scalar distance between two atoms, using the minimum image convention.
@@ -44,6 +45,9 @@ double update_max_displacement(double fraction_accepted, double boxdim, double m
     /* Write code to update the maximum displacement based on current acceptance crtieria. 
     The function should return the the new maximum displacement.
     */
+    //number of ways to do this, you could add 0.01 to the acceptance criterea, increase max_displacement by some fraction, such as 20%
+    //try playing around with %change in maxiumum displacement /
+    //do this as some percentage increase or decrease of max_displacement
 }
 
 void write_frame(ofstream & trajstream, vector<xyz> & coords, string atmtyp, xyz & boxdim, int mcstep)
@@ -72,6 +76,7 @@ double get_LJ_eij(double sigma, double epsilon, double rcut, double rij)
 
 void get_LJ_fij(double sigma, double epsilon, double rcut, double rij, const xyz & rij_vec, xyz & fij)
 {
+    //calculate theforce vector 
     /* Write code to compute the Lennard Jones force between the two atoms.
     It should account for the user-specified cutoff distance.
     The function should update the the force and distance vectors directly
@@ -98,14 +103,14 @@ void get_single_particle_LJ_contributions(double sigma, double epsilon, double r
     /* Write code to determine the contributions to the total system energy, forces, and stresses due to the selected atom.
     Self interactions should not be included.
 
-    // Loop over all atoms. Within the loop:
+    // Loop over all atoms in system. Within the loop:
+        //energy_selected is the pre-trial energy 
+        // Get the scalar distance and distance vector between selected atom and all other atoms in the loop, using MIC
+
         
-        // Get the scalar distance and distance vector between atoms, using MIC
-
-
         // Determine pair energy, but only if interaction is within cutoff idstance
     
-    
+
         // Determine the atom pair's contribution to the total system pressure - again, only perform 
         // if within the model cutoff - we'll use this if the move is accepted
     
@@ -120,6 +125,7 @@ int main(int argc, char* argv[])
     // Set user-defined variables (Read in from input file at some point)
     ///////////////////////////////////////////////////////////////////////////////////////////////
     
+    //you want this to be the same every time IF YOU ARE TESTING YOUR CODE! OTherwise, you want it to be truly random
     int     seed    = stoi(argv[1]);// Seed for random number generator - read from commandline 
     double  redden  = stod(argv[2]);// Reduced density - read from commandline
     
@@ -127,26 +133,27 @@ int main(int argc, char* argv[])
     
     MTRand  mtrand(seed); // Seed the (psuedo) random number generator
     
-    double  sigma   = 3.4;          // Units: Angstrom
-    double  epsilon = 120;          // Units: K/k_B
+    double  sigma   = 3.4;          // Units: Angstrom - particle size, particle diameter, the point on the plot which you cross x = 0
+    double  epsilon = 120;          // Units: K*k_B
     double  rcut    = 4*sigma;      // Model outer cutoff
     
     int     natoms  = 500;          // Number of atoms in the system
     string  atmtyp  = "Ar";         // Atom type (atomic symbol)
     double  molmass = 39.948;       // Mass of an particle of atmtyp (Atomic mass in the case of an argon atom)
     double  density = redden / pow(A2m,3.0) * pow(cm2m,3.0) / nav * molmass / pow(sigma,3.0);     // System density; Units: g/cm^3
-    double  numden;                 // System number density; Units: atoms/Ang^3 - will be calculated later on
+ 
+    double  numden;                 // System number density; Units: atoms/Ang^3 - will be calculated later on #number density: density in volume per ang^3
     
     double  temp    = 1.2*epsilon;  // Temperature, in K
     double  nsteps  = 5e6;          // Number of MC steps
-    int     iofrq   = 2e4;          // Frequency to output statistics and trajectory
+    int     iofrq   = 2e4;          // Frequency to output statistics and trajectory //print some informationf or me every 2*10^4 steps
     int     nequil  = 2e6;          // Equilibration period (chemical potential and heat capacity only collected after this many steps)
     
     xyz         boxdim;             // Simulation box x, y, and z lengths - will be determined later on
     vector<xyz> coords;             // Coordinates for all atoms in our system; coords[0].x gives the x coordinate of the 0th atom - will be generated later on
     
     //////// Variables used for file i/o
-    
+    //the code should generate this for you!!
     ofstream    trajstream; // Trajectory file - uses the LAMMPS lammpstrj format
         
     //////// Print information for user
@@ -223,12 +230,13 @@ int main(int argc, char* argv[])
     // Print this initial configuration to a file
     
     trajstream.open("MC_traj.lammpstrj");
-    write_frame(trajstream, coords, atmtyp, boxdim, -1);
+    write_frame(trajstream, coords, atmtyp, boxdim, -1); //puts frame into trajstream, print out the coodriantes, the atoms that are there, and the box dimension
 
     // Print some information for the user
 
     /* Complete these lines to compute the reduced density and temperature*/
-    
+    //
+
     cout << "# reduc. density (rho*): " << /*write this*/ << endl;
     cout << "# reduc. temp (T*):      " << /*write this*/ << endl;
 
@@ -242,26 +250,32 @@ int main(int argc, char* argv[])
     
     double  energy = 0;         // Energy for the configuration
    
+   //used for widom calculations
+   //exponential factor when we try to include a new atom
     double widom_factor = 0;    // The exponential term in the Widom chemical potential expression
-    double widom_trials = 0;    // Number of Widom insertion attempts
-    double widom_avg    = 0;    // Average value of the wWidom factor
+    double widom_trials = 0;    // Number of Widom insertion attempts/number of times we 'try' to insert something in
+    double widom_avg    = 0;    // Average value of the Widom factor
         
+    //this will be used for C_v
     double Eavg = 0;            // Average energy
     double Esqavg = 0;          // Square of average energy
 
-   
+   //used to calculate pressure!
     xyz     force;              // Force on a given atom
     xyz     stensor;            // System stress tensor (diagonal components only, i.e., xx, yy, zz)
     stensor.x = 0;
     stensor.y = 0;
     stensor.z = 0;
     
+    //energy, force, and stress calulations!
+    //double loop over all possible atom combinations! No double counting :)
     for (int i=0; i<natoms; i++)                                                                         
     {
         for (int j=i+1; j<natoms; j++)
         {
             // Get the scalar distance and distance vector between atoms, using MIC
-
+            xyz dist_vec;
+            dist_scal = get_dist(coord[i], coord[j], boxdim, dist_vec);
             /*write this*/
                       
             // Determine atom pair's contirbution to total system energy - remember to only perform the 
@@ -269,6 +283,7 @@ int main(int argc, char* argv[])
             
             /*write this*/
             
+
             // Determine the atom pair's contribution to the total system pressure - again, only perform 
             // if within the model cutoff
                         
@@ -286,32 +301,37 @@ int main(int argc, char* argv[])
     
     double max_displacement = 0.5*boxdim.x;  // Start trial displacements at one angstrom
 
-    int     selected_atom;
+    int     selected_atom; //index of selected atom for trial moves 
     
-    double  eold_selected;  // Pre-trial-move energy of the selected atom
-    double  enew_selected;  // Post-trial-move energy of the selected atom
+    double  eold_selected;  // Pre-trial-move energy of the selected atom //original energy
+    double  enew_selected;  // Post-trial-move energy of the selected atom //new energy
     double  delta_energy;   // Difference between old and new (trial) energy
-    xyz     sold_selected;  // Pre-trial-move stress tensor diagonal of the selected atom
+    xyz     sold_selected;  // Pre-trial-move stress tensor diagonal of the selected atom //stress tensor contrib
     xyz     snew_selected;  // Post-trial-move stress tensor diagonal of the selected atom
     
     xyz     trial_displacement;    
     xyz     trial_position;
     
+    //these will all be used to keep track of our running averages and 
     int     naccepted_moves = 0;    // Number of accepted moves
     double  fraction_accepted;      // Fraction of attempted moves that have been accepted
+    //if I've gone one million steps, I'm going to now call this the new equilib
     int     nrunningav_moves = 0;   // Move index for running averages (doesn't start until equilibration period has ended)
     
     double pressure;
+    //heat capacity
     double Cv;
 
     double stat_avgE   = 0;
+    //average square energy
     double stat_avgEsq = 0;
+    //average pressure 
     double stat_avgP   = 0;
 
     for (int i=0; i<nsteps; i++)
     {
         // Select a random particle. The syntax below shows how to use the random number generator. This generate a random integer between 0 and natoms-1
-        
+        //mtrand gives you a number between zero and one, multiplies by number of atoms to get an index, 
         selected_atom = int(mtrand()*natoms);
         
         // Determine contributions to the system's energy, force, and stress due to the selected atom 
@@ -335,7 +355,8 @@ int main(int argc, char* argv[])
         /*write this*/        
         
         // 4. Determine the energy contribution of that particle with the system **in it's trial position**
-    
+
+        //put in trial coordinates! 
         get_single_particle_LJ_contributions(sigma, epsilon, rcut, coords, selected_atom, trial_position, boxdim, enew_selected, snew_selected);
         
         if (i >= nequil) // Only do Widom tests for the equilibrated portion of the simulation
@@ -373,8 +394,12 @@ int main(int argc, char* argv[])
         // particle is at it's trial position, E_old - eold_selected + enew_selected = E_new
         // Therefore delta E, which = E_new - E_old is just enew_selected - eold_selected
         
+        //COMPUTE CHANGE IN ENERGY
         delta_energy = /*write this*/
 
+        //EVALUATE ACCEPTANCE CRITEREA
+        //COMPARE SOME RANDOM NUMBER TO THE ACCEPTANCE CRITEREA
+        //CANNOT COPY AS IS - LOOK AT UNITS AND FIGURE IT OUT 
         if ( mtrand() < /*write the acceptance criteria*/ ) // Then accept
         {
             // Then the system energy has decreased **or** our random number is less than our probability to accept
@@ -385,7 +410,7 @@ int main(int argc, char* argv[])
         }
         
         // Update maximum diplacement to target a 50% acceptance rate
-        
+        //WE ARE TRYING TO TUNE THE MAXIMUM DISPLACVEMENT FOR A ROUGHLY 50% ACCEPTANCE RATE
         fraction_accepted = float(naccepted_moves)/float(i+1);
         
         max_displacement = update_max_displacement(fraction_accepted, boxdim.x, max_displacement);
@@ -394,13 +419,16 @@ int main(int argc, char* argv[])
         // print statistics if ineeded - don't forget to convert the stress tensor to pressure 
         // Compute instantaneous properties
         
+        //now, what are my physical properties? 
+        //new pressure after accepting or rejecting my move 
         pressure = /*write this - this is the full pressure, i.e., kinetic + Virial*/;
         Cv       = 0;
 
         if (i >= nequil) // Compute values for running averages, only using the equilibrated portion of the trajectory
         {
             stat_avgE   += energy;
-            stat_avgEsq += energy*energy;        
+            stat_avgEsq += energy*energy;   
+            //converting back to reduced units      
             stat_avgP   += pressure/epsilon*pow(sigma,3.0);
             nrunningav_moves++;
             
@@ -410,7 +438,7 @@ int main(int argc, char* argv[])
             Cv =/*write this - this should only be the dE/dT portion*/;
         }
  
-        
+        //every xxxx steps, output a bunch of information about the simulation
         if ( (i+1) % iofrq == 0)
         {
             write_frame(trajstream, coords, atmtyp, boxdim, i);
