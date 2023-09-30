@@ -52,13 +52,12 @@ double get_dist(const xyz & a1, const xyz & a2, const xyz & boxdim, xyz & rij_ve
     return distance;
 }
 
-//TODO: FIX THIS:
 double update_max_displacement(double fraction_accepted, double boxdim, double max_displacement)
 {
     /* Write code to update the maximum displacement based on current acceptance crtieria. 
     The function should return the the new maximum displacement.
     */
-    if(fraction_accepted > 0.5){
+    if(fraction_accepted >= 0.5){
         max_displacement =  max_displacement*1.2;
     }
 
@@ -119,6 +118,7 @@ void system_coordinates::generate_coords()
 {
     // Determine the box length that will yield the user-specified density. Start by computing the target number density.
 
+    //BUG???
     numden = density / molmass * nav / pow(cm2m,3.0) * pow(A2m,3.0); // Density in atoms per Ang^3
     
     cout << "# Num. den. (atoms/Ang): " << numden << endl;
@@ -224,7 +224,7 @@ double LJ_model::get_eij(double rij)
         return 0;
     }
 
-    sigmaOverR = sigma/rij;
+    double sigmaOverR = sigma/rij;
 
     return 4*epsilon*(pow(sigmaOverR, 12)-pow(sigmaOverR, 6));
 }
@@ -234,11 +234,10 @@ void LJ_model::get_fij(double rij, const xyz & rij_vec, xyz & fij)
     /* Write code to compute the Lennard Jones force between the two atoms.
     It should account for the user-specified cutoff distance.
     The function should update the the force and distance vectors directly
-    // Q: how should the distance vector be updated?
     The function should not return anything.
     */
 
-    if(rij >== rcut){
+    if(rij >= rcut){
         fij.x = 0;
         fij.y = 0;
         fij.z = 0;
@@ -246,15 +245,24 @@ void LJ_model::get_fij(double rij, const xyz & rij_vec, xyz & fij)
     }
 
     //Force is the derivative of energy with respect to R!
-    fij.x = 4*epsilon*((-12*pow(sigma, 12)*pow(rij_vec.x, -13))+(6*pow(sigma, 6)*pow(rij_vec.x, -7)));
-    fij.y = 4*epsilon*((-12*pow(sigma, 12)*pow(rij_vec.y, -13))+(6*pow(sigma, 6)*pow(rij_vec.y, -7)));
-    fij.z = 4*epsilon*((-12*pow(sigma, 12)*pow(rij_vec.z, -13))+(6*pow(sigma, 6)*pow(rij_vec.z, -7)));
+    //units below in J/A!!!
+    fij.x = -4*epsilon*((-12*pow(sigma, 12)*pow(rij_vec.x, -13))+(6*pow(sigma, 6)*pow(rij_vec.x, -7)));
+    fij.y = -4*epsilon*((-12*pow(sigma, 12)*pow(rij_vec.y, -13))+(6*pow(sigma, 6)*pow(rij_vec.y, -7)));
+    fij.z = -4*epsilon*((-12*pow(sigma, 12)*pow(rij_vec.z, -13))+(6*pow(sigma, 6)*pow(rij_vec.z, -7)));
+
+    //convert to J/m = N:
+    fij.x = fij.x/A2m;
+    fij.y = fij.y/A2m;
+    fij.z = fij.z/A2m;
 
     return;
 }
 
 void LJ_model::get_single_particle_contributions(const vector<xyz> & coords, int selected_atom, const xyz & selected_atom_coords, const xyz & boxdim, double & energy_selected, xyz & stress_selected)
 {
+    /* Write code to determine the contributions to the total system energy, forces, and stresses due to the selected atom.
+    Self interactions should not be included.*/
+
     energy_selected   = 0;
     stress_selected.x = 0;
     stress_selected.y = 0;
@@ -267,45 +275,27 @@ void LJ_model::get_single_particle_contributions(const vector<xyz> & coords, int
     static double rij;
     static xyz    rij_vec;
 
+    // Loop over all atoms. Within the loop:
     for (int i = 0; i < 0; i++)
     {
-        if(i == coords[selected_atom]){
+        if(i == selected_atom){
             continue;
         }
-
-        rij = get_dist(coords[selected_atom], coords[i], boxdim, rij_vec);
-        energy = get_eij(rij);
-        energy_selected += energy;
-
-        xyz force_vec
-
-        get_fij(dist, rij_vec, force_vec);
-        force.x += force_vec.x;
-        force.y += force_vec.y;
-        force.z += force_vec.z;
-
-        stress_xx = force_vec.x * rij_vec.x;
-        stress_yy = force_vec.y * rij_vec.y;
-        stress_zz = force_vec.z * rij_vec.z;
-        stress_selected.x += stress_xx;
-        stress_selected.y += stress_yy;
-        stress_selected.z += stress_zz;
-    }
-    /* Write code to determine the contributions to the total system energy, forces, and stresses due to the selected atom.
-    Self interactions should not be included.
-
-    // Loop over all atoms. Within the loop:
         
         // Get the scalar distance and distance vector between atoms, using MIC
-
+        rij = get_dist(selected_atom_coords, coords[i], boxdim, rij_vec);
 
         // Determine pair energy, but only if interaction is within cutoff idstance
-    
-    
+        energy_selected += get_eij(rij);
+
         // Determine the atom pair's contribution to the total system pressure - again, only perform 
         // if within the model cutoff - we'll use this if the move is accepted
-    
-    */
+        get_fij(rij, rij_vec, force);
+
+        stress_selected.x += force.x * rij_vec.x * A2m;
+        stress_selected.y += force.y * rij_vec.y * A2m;
+        stress_selected.z += force.z * rij_vec.z * A2m;
+    }
 }
 
 
@@ -324,7 +314,7 @@ int main(int argc, char* argv[])
     MTRand  mtrand(seed); // Seed the (psuedo) random number generator
     
     double  sigma   = 3.4;          // Units: Angstrom
-    double  epsilon = 120;          // Units: K/k_B
+    double  epsilon = 120;          // Units: K*k_B
     double  rcut    = 4*sigma;      // Model outer cutoff
     
     int     natoms  = 500;          // Number of atoms in the system
@@ -360,6 +350,7 @@ int main(int argc, char* argv[])
     system_coordinates system(natoms, atmtyp, density, molmass);
     system.generate_coords();
     
+    //double check this!
     cout << "# reduc. density (rho*): " << redden << endl;
     cout << "# reduc. temp (T*):      " << (temp*kB)/epsilon << endl;
 
@@ -394,36 +385,21 @@ int main(int argc, char* argv[])
     {
         for (int j=i+1; j<system.natoms; j++)
         {
-            rij = get_dist(coords[i], coords[j], boxdim, rij_vec);
-            energy_ij = get_eij(rij);
-            energy+= energy_ij;
-
-            xyz force_vec;
-
-            get_fij(dist, rij_vec, force_vec);
-            force.x += force_vec.x;
-            force.y += force_vec.y;
-            force.z += force_vec.z;
-
-            stress_xx = force_vec.x * rij_vec.x;
-            stress_yy = force_vec.y * rij_vec.y;
-            stress_zz = force_vec.z * rij_vec.z;
-            stress_selected.x += stress_xx;
-            stress_selected.y += stress_yy;
-            stress_selected.z += stress_zz;
             // Get the scalar distance and distance vector between atoms, using MIC
+            rij = get_dist(system.coords[i], system.coords[j], system.boxdim, rij_vec);
 
-            /*write this*/
-                      
             // Determine atom pair's contirbution to total system energy - remember to only perform the 
             // calculation if the pair distance is within the model cutoff
-            
-            /*write this*/
-            
+            energy_ij = get_eij(rij);
+            energy += energy_ij;
+
             // Determine the atom pair's contribution to the total system pressure - again, only perform 
             // if within the model cutoff
-                        
-            /*write this*/
+            get_fij(dist, rij_vec, force);
+
+            stensor.x += force.x * rij_vec.x;
+            stensor.y += force.y * rij_vec.y;
+            stensor.z += force.z * rij_vec.z;
         }
     }
 
@@ -473,15 +449,21 @@ int main(int argc, char* argv[])
         // 1. Generate the trial **displacement** in x, y, and z - the particle should be able to move in positive
         // and negative directions, i.e., +/- the maximum displacement
 
-        /*write this*/
+        trial_displacement.x = (1 - (2*mtrand()))*max_displacement;
+        trial_displacement.y = (1 - (2*mtrand()))*max_displacement;
+        trial_displacement.z = (1 - (2*mtrand()))*max_displacement;
         
         // 2. Generate the trial **position** in x, y, and z based on the displacement
         
-        /*write this*/
+        trial_position.x = coords[selected_atom].x + trial_displacement.x;
+        trial_position.y = coords[selected_atom].y + trial_displacement.y;
+        trial_position.z = coords[selected_atom].z + trial_displacement.z;
         
         // 3. Apply PBC if the particle has moved outside the box
         
-        /*write this*/        
+        trial_position.x -= floor(trial_position.x/system.boxdim.x)*boxdim.x;
+        trial_position.y -= floor(trial_position.y/system.boxdim.y)*boxdim.y;
+        trial_position.z -= floor(trial_position.z/system.boxdim.z)*boxdim.z;      
         
         // 4. Determine the energy contribution of that particle with the system **in it's trial position**
     
@@ -522,13 +504,24 @@ int main(int argc, char* argv[])
         // particle is at it's trial position, E_old - eold_selected + enew_selected = E_new
         // Therefore delta E, which = E_new - E_old is just enew_selected - eold_selected
         
-        delta_energy = /*write this*/
+        delta_energy = enew_selected - eold_selected;
 
-        if ( mtrand() < /*write the acceptance criteria*/ ) // Then accept
+        else if ( mtrand() < exp(-delta_energy/(kB*temp)) ) // Then accept
         {
             // Then the system energy has decreased **or** our random number is less than our probability to accept
             // Update the system position, energy, and stress tensor, and number of accepted moves
-            
+            system.coords[selected_atom].x = trial_position.x;
+            system.coords[selected_atom].y = trial_position.y;
+            system.coords[selected_atom].z = trial_position.z;
+
+            energy += delta_energy;
+
+            stensor.x = stensor.x - sold_selected.x + snew_selected.x;
+            stensor.y = stensor.y - sold_selected.y + snew_selected.y;
+            stensor.z = stensor.z - sold_selected.z + snew_selected.z;
+
+            ++naccepted_moves;
+
             /*write this*/
         }
 
@@ -538,10 +531,12 @@ int main(int argc, char* argv[])
         
         max_displacement = update_max_displacement(fraction_accepted, system.boxdim.x, max_displacement);
 
-        // print statistics if ineeded - don't forget to conver the stress tensor to pressure 
+        // print statistics if needed - don't forget to convert the stress tensor to pressure 
         // Compute instantaneous properties
         
-        pressure = numden*temp + 1.0/3.0/pow(system.boxdim.x,3.0)*(stensor.x + stensor.y + stensor.z);
+        //BUG - missing A2m - UNITS???
+        //first term was originally numden*temp
+        pressure = numden*temp*kB/natoms + 1.0/3.0/pow(system.boxdim.x*A2m,3.0)*(stensor.x + stensor.y + stensor.z);
         Cv       = 0;
 
         if (i >= nequil) // Compute values for running averages, only using the equilibrated portion of the trajectory
@@ -554,7 +549,10 @@ int main(int argc, char* argv[])
             double avgE   = stat_avgE /float(nrunningav_moves);
             double avgEsq = stat_avgEsq / float(nrunningav_moves);
             
-            Cv =/*write this - this should only be the dE/dT portion*/;
+            double varE = avgE - avgEsq;
+            double Cv_xs = pow(varE, 2)/(kB*pow(temp, 2));
+            double Cv_ig = (3/2)*kB;
+            Cv = Cv_xs + Cv_ig;
         }    
            
         if ( (i+1) % iofrq == 0)
