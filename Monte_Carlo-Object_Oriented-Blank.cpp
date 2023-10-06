@@ -118,7 +118,7 @@ void system_coordinates::generate_coords()
 {
     // Determine the box length that will yield the user-specified density. Start by computing the target number density.
 
-    //BUG???
+    
     numden = density / molmass * nav / pow(cm2m,3.0) * pow(A2m,3.0); // Density in atoms per Ang^3
     
     cout << "# Num. den. (atoms/Ang): " << numden << endl;
@@ -479,16 +479,18 @@ int main(int argc, char* argv[])
             
             // 5.a Generate another position for a new ghost atom
             
-            /*write this*/
+            widom_position.x = mtrand()*boxdim.x
+            widom_position.y = mtrand()*boxdim.y
+            widom_position.z = myrand()*boxdim.z
             
             
             // 5.b Calculate change in system energy due to insertion of new ghost atom 
-            
+            //is there anything we use swidom for?
             LJ.get_single_particle_contributions(system.coords, -1, widom_position, system.boxdim, ewidom, swidom);
             
             // 5.c Update the Widom factor
             
-            widom_factor = /*write this*/
+            widom_factor = exp((1/kB*temp)*(ewidom - energys))
             widom_avg   += widom_factor;
             widom_trials++;
         }
@@ -536,8 +538,12 @@ int main(int argc, char* argv[])
         
         //BUG - missing A2m - UNITS???
         //first term was originally numden*temp
-        pressure = numden*temp*kB/natoms + 1.0/3.0/pow(system.boxdim.x*A2m,3.0)*(stensor.x + stensor.y + stensor.z);
-        Cv       = 0;
+        double pressure_kinetic = (numden/A2m)*temp*kB/natoms;
+        double pressure_virial = 1.0/3.0/pow(system.boxdim.x*A2m,3.0)*(stensor.x + stensor.y + stensor.z)
+        pressure = pressure_kinetic + pressure_virial;
+        Cv       = 0; //calculate heat capacity
+        double Cv_xs = 0;
+        double Cv_ig = 0;
 
         if (i >= nequil) // Compute values for running averages, only using the equilibrated portion of the trajectory
         {
@@ -550,8 +556,8 @@ int main(int argc, char* argv[])
             double avgEsq = stat_avgEsq / float(nrunningav_moves);
             
             double varE = avgE - avgEsq;
-            double Cv_xs = pow(varE, 2)/(kB*pow(temp, 2));
-            double Cv_ig = (3/2)*kB;
+            Cv_xs = pow(varE, 2)/(kB*pow(temp, 2));
+            Cv_ig = (3/2)*kB;
             Cv = Cv_xs + Cv_ig;
         }    
            
@@ -564,10 +570,10 @@ int main(int argc, char* argv[])
             cout << " fAcc:  " << setw(10) << left << fixed << setprecision(3) << fraction_accepted;
             cout << " Maxd:  " << setw(10) << left << fixed << setprecision(5) << max_displacement;
             cout << " E*/N:  " << setw(10) << left << fixed << setprecision(5) << energy/natoms/LJ.epsilon;
-            cout << " P*:     " << setw(10) << left << fixed << setprecision(5) << /*write this - this is the reduced pressure*/;
-            cout << " P*cold: " << setw(10) << left << fixed << setprecision(5) <<  /*write this - this is the reduced Virial component of pressure*/;
-            cout << " Mu*_xs: " << setw(10) << left << fixed << setprecision(5) << /*write this - this is excess chemical potential*/; 
-            cout << " Cv*/N_xs:  " << setw(15) << left << fixed << setprecision(5) << /*write this - this is excess heat capacity per atom*/);
+            cout << " P*:     " << setw(10) << left << fixed << setprecision(5) << stat_avgP/float(nrunningav_moves);
+            cout << " P*cold: " << setw(10) << left << fixed << setprecision(5) <<  (stat_avgP - (nrunningav_moves*pressure_kinetic))/float(nrunningav_moves);
+            cout << " Mu*_xs: " << setw(10) << left << fixed << setprecision(5) << (-log(widom_factor/widom_trials)*kB*temp); 
+            cout << " Cv*/N_xs:  " << setw(15) << left << fixed << setprecision(5) << Cv_xs;
             cout << " E(kJ/mol): " << setw(10) << left << fixed << setprecision(3) << energy * 0.003814; // KJ/mol per K 
             cout << " P(bar):    " << setw(10) << left << fixed << setprecision(3) << pressure * 0.003814 * 10.0e30 * 1000/(6.02*10.0e23)*1.0e-5; // KJ/mol/A^3 to bar
             cout << endl;
@@ -577,7 +583,8 @@ int main(int argc, char* argv[])
     
     stat_avgE    /= float(nrunningav_moves);
     stat_avgEsq  /= float(nrunningav_moves);
-    Cv            =  /*write this, based on average energies - this should only be the dE/dT portion*/
+    //TODO
+    Cv            =  Cv_xs/*write this, based on average energies - this should only be the dE/dT portion*/
     stat_avgE    *= 1.0/natoms/LJ.epsilon;
 
     cout << "# Computed average properties: " << endl;
