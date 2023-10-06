@@ -39,9 +39,9 @@ double get_dist(const xyz & a1, const xyz & a2, const xyz & boxdim, xyz & rij_ve
     The function should return the scalar distance.
     */
 
-    double dx = (a2.x-a1.x) - nint((a2.x-a1.x)/boxdim.x) * boxdim.x;
-    double dy = (a2.y-a1.y) - nint((a2.y-a1.y)/boxdim.y) * boxdim.y;
-    double dz = (a2.z-a1.z) - nint((a2.z-a1.z)/boxdim.z) * boxdim.z;
+    double dx = (a2.x-a1.x) - round((a2.x-a1.x)/boxdim.x) * boxdim.x;
+    double dy = (a2.y-a1.y) - round((a2.y-a1.y)/boxdim.y) * boxdim.y;
+    double dz = (a2.z-a1.z) - round((a2.z-a1.z)/boxdim.z) * boxdim.z;
 
     rij_vec.x = dx;
     rij_vec.y = dy;
@@ -58,11 +58,11 @@ double update_max_displacement(double fraction_accepted, double boxdim, double m
     The function should return the the new maximum displacement.
     */
     if(fraction_accepted >= 0.5){
-        max_displacement =  max_displacement*1.2;
+        max_displacement =  max_displacement*1.2; //if TOO MANY moves are accepted (i.e. the displacement is too short), then we want to increase max_displacement by 20%
     }
 
     if(fraction_accepted < 0.5){
-        max_displacement = max_displacement*0.8;
+        max_displacement = max_displacement*0.8; //if TOO FEW moves are accepted (i.e. the displacement is too large), then we want to decrease max_displacement by 20% 
     }
 
     return max_displacement;
@@ -78,9 +78,9 @@ public:
     string      atmtyp;     // Atom type (atomic symbol)
     double      density;    // System density in g/cm^3
     double      numden;     // System number density (atoms/Ang^3)
-    double      molmass;    // Molar mass of an atom of atmtyp
-    xyz         boxdim;     // Simulation box x, y, and z lengths
-    vector<xyz> coords;     // Coordinates for all atoms in our system
+    double      molmass;    // Molar mass of an atom of atmtyp, presumably in g/mol
+    xyz         boxdim;     // Simulation box x, y, and z lengths, UNITS??
+    vector<xyz> coords;     // Coordinates for all atoms in our system, UNITS??
     
     // Variables used for file i/o
     
@@ -123,9 +123,9 @@ void system_coordinates::generate_coords()
     
     cout << "# Num. den. (atoms/Ang): " << numden << endl;
     
-    boxdim.x = pow(natoms/numden, 1.0/3.0); 
-    boxdim.y = boxdim.x;
-    boxdim.z = boxdim.x;
+    boxdim.x = pow(natoms/numden, 1.0/3.0); //ANGSTROMS
+    boxdim.y = boxdim.x; //ANGSTROMS
+    boxdim.z = boxdim.x; //ANGSTROMS
     
     cout << "# Box length (x):        " << boxdim.x << endl;
     cout << "# Box length (y):        " << boxdim.y << endl;
@@ -163,7 +163,7 @@ void system_coordinates::generate_coords()
         }
     }
                 
-    
+    //NOTE: atom coords is ALSO in angstroms
     // Print this initial configuration to a file
     
     write_frame(-1);   
@@ -191,9 +191,9 @@ public:
     
     ///units for epsilon: e/Kb?
     
-    double  sigma;
-    double  epsilon;
-    double  rcut;
+    double  sigma; //in ANGSTROMS
+    double  epsilon; //in JOULES (or rather, kB * Kelvin)
+    double  rcut; //radius - ANGSTROMS
     
     double  term1;   // Placeholder for (sigma/rij)^12
     double  term2;   // Placeholder for (sigma/rij)^6
@@ -224,9 +224,9 @@ double LJ_model::get_eij(double rij)
         return 0;
     }
 
-    double sigmaOverR = sigma/rij;
+    double sigmaOverR = sigma/rij; //unitless
 
-    return 4*epsilon*(pow(sigmaOverR, 12)-pow(sigmaOverR, 6));
+    return 4*epsilon*(pow(sigmaOverR, 12)-pow(sigmaOverR, 6)); //energy returned in JOULES
 }
 
 void LJ_model::get_fij(double rij, const xyz & rij_vec, xyz & fij)
@@ -246,15 +246,17 @@ void LJ_model::get_fij(double rij, const xyz & rij_vec, xyz & fij)
 
     //Force is the derivative of energy with respect to R!
     //units below in J/A!!!
+    //power terms all have units of A^-1
     fij.x = -4*epsilon*((-12*pow(sigma, 12)*pow(rij_vec.x, -13))+(6*pow(sigma, 6)*pow(rij_vec.x, -7)));
     fij.y = -4*epsilon*((-12*pow(sigma, 12)*pow(rij_vec.y, -13))+(6*pow(sigma, 6)*pow(rij_vec.y, -7)));
     fij.z = -4*epsilon*((-12*pow(sigma, 12)*pow(rij_vec.z, -13))+(6*pow(sigma, 6)*pow(rij_vec.z, -7)));
 
     //convert to J/m = N:
+    //J/A * 1/A2m = J/m
     fij.x = fij.x/A2m;
     fij.y = fij.y/A2m;
     fij.z = fij.z/A2m;
-
+    //FORCES RETURNED IN J/m
     return;
 }
 
@@ -272,6 +274,7 @@ void LJ_model::get_single_particle_contributions(const vector<xyz> & coords, int
     force.y = 0;
     force.z = 0;
     
+    //rij in ANGSTROMS
     static double rij;
     static xyz    rij_vec;
 
@@ -283,15 +286,20 @@ void LJ_model::get_single_particle_contributions(const vector<xyz> & coords, int
         }
         
         // Get the scalar distance and distance vector between atoms, using MIC
+        //rij IN ANGSTROMS
         rij = get_dist(selected_atom_coords, coords[i], boxdim, rij_vec);
 
         // Determine pair energy, but only if interaction is within cutoff idstance
+        //eij in JOULES
         energy_selected += get_eij(rij);
 
         // Determine the atom pair's contribution to the total system pressure - again, only perform 
         // if within the model cutoff - we'll use this if the move is accepted
+        //force in JOULES PER METER 
         get_fij(rij, rij_vec, force);
 
+        //stress in J/m (Newtons), multiply by rij_vec (ANGSTROMS) - need to convert rij to ANGSTROMS to get JOULES
+        //thus, sress is in JOULES
         stress_selected.x += force.x * rij_vec.x * A2m;
         stress_selected.y += force.y * rij_vec.y * A2m;
         stress_selected.z += force.z * rij_vec.z * A2m;
@@ -314,7 +322,7 @@ int main(int argc, char* argv[])
     MTRand  mtrand(seed); // Seed the (psuedo) random number generator
     
     double  sigma   = 3.4;          // Units: Angstrom
-    double  epsilon = 120;          // Units: K*k_B
+    double  epsilon = 120;          // Units: K*k_B (JOULES)
     double  rcut    = 4*sigma;      // Model outer cutoff
     
     int     natoms  = 500;          // Number of atoms in the system
@@ -362,21 +370,21 @@ int main(int argc, char* argv[])
     // Determine initial system energy and pressure
     ///////////////////////////////////////////////////////////////////////////////////////////////
     
-    double  rij;                // Scalar distance between atoms
-    xyz     rij_vec;            // Distance vector between atoms
+    double  rij;                // Scalar distance between atoms, in ANGSTROMS
+    xyz     rij_vec;            // Distance vector between atoms, in ANGSTROMS
     
-    double  energy = 0;         // Energy for the configuration
+    double  energy = 0;         // Energy for the configuration, in JOULES
    
     double widom_factor = 0;    // The exponential term in the Widom chemical potential expression
     double widom_trials = 0;    // Number of Widom insertion attempts
     double widom_avg    = 0;    // Average value of the wWidom factor
         
-    double Eavg = 0;            // Average energy
-    double Esqavg = 0;          // Square of average energy
+    double Eavg = 0;            // Average energy, in JOULES
+    double Esqavg = 0;          // Square of average energy, in JOULES^2
 
    
-    xyz     force;              // Force on a given atom
-    xyz     stensor;            // System stress tensor (diagonal components only, i.e., xx, yy, zz)
+    xyz     force;              // Force on a given atom, given in NEWTONS (J/m)
+    xyz     stensor;            // System stress tensor (diagonal components only, i.e., xx, yy, zz) IN JOULES UNTIL FINAL CONVERSION
     stensor.x = 0;
     stensor.y = 0;
     stensor.z = 0;
@@ -390,14 +398,14 @@ int main(int argc, char* argv[])
 
             // Determine atom pair's contirbution to total system energy - remember to only perform the 
             // calculation if the pair distance is within the model cutoff
-            energy_ij = get_eij(rij);
-            energy += energy_ij;
+            double energy_ij = LJ.get_eij(rij);
+            energy += energy_ij; // energy in JOULES
 
             // Determine the atom pair's contribution to the total system pressure - again, only perform 
             // if within the model cutoff
-            get_fij(dist, rij_vec, force);
+            LJ.get_fij(rij, rij_vec, force); //force of initialized system in NEWTONS
 
-            stensor.x += force.x * rij_vec.x;
+            stensor.x += force.x * rij_vec.x; //stensor of initialized sytem in JOULES
             stensor.y += force.y * rij_vec.y;
             stensor.z += force.z * rij_vec.z;
         }
@@ -448,6 +456,7 @@ int main(int argc, char* argv[])
         
         // 1. Generate the trial **displacement** in x, y, and z - the particle should be able to move in positive
         // and negative directions, i.e., +/- the maximum displacement
+        //displacement and position in ANGSTROMS
 
         trial_displacement.x = (1 - (2*mtrand()))*max_displacement;
         trial_displacement.y = (1 - (2*mtrand()))*max_displacement;
@@ -455,18 +464,18 @@ int main(int argc, char* argv[])
         
         // 2. Generate the trial **position** in x, y, and z based on the displacement
         
-        trial_position.x = coords[selected_atom].x + trial_displacement.x;
-        trial_position.y = coords[selected_atom].y + trial_displacement.y;
-        trial_position.z = coords[selected_atom].z + trial_displacement.z;
+        trial_position.x = system.coords[selected_atom].x + trial_displacement.x;
+        trial_position.y = system.coords[selected_atom].y + trial_displacement.y;
+        trial_position.z = system.coords[selected_atom].z + trial_displacement.z;
         
-        // 3. Apply PBC if the particle has moved outside the box
+        // 3. Apply PBC if the particle has moved outside the box using MIC:
         
-        trial_position.x -= floor(trial_position.x/system.boxdim.x)*boxdim.x;
-        trial_position.y -= floor(trial_position.y/system.boxdim.y)*boxdim.y;
-        trial_position.z -= floor(trial_position.z/system.boxdim.z)*boxdim.z;      
+        trial_position.x -= floor(trial_position.x/system.boxdim.x)*system.boxdim.x;
+        trial_position.y -= floor(trial_position.y/system.boxdim.y)*system.boxdim.y;
+        trial_position.z -= floor(trial_position.z/system.boxdim.z)*system.boxdim.z;      
         
         // 4. Determine the energy contribution of that particle with the system **in it's trial position**
-    
+        //energy is in JOULES, stress is ALSO in JOULES
         LJ.get_single_particle_contributions(system.coords, selected_atom, trial_position, system.boxdim, enew_selected, snew_selected);
 
         if (i >= nequil) // Only do Widom tests for the equilibrated portion of the simulation
@@ -479,9 +488,9 @@ int main(int argc, char* argv[])
             
             // 5.a Generate another position for a new ghost atom
             
-            widom_position.x = mtrand()*boxdim.x
-            widom_position.y = mtrand()*boxdim.y
-            widom_position.z = myrand()*boxdim.z
+            widom_position.x = mtrand()*system.boxdim.x;
+            widom_position.y = mtrand()*system.boxdim.y;
+            widom_position.z = mtrand()*system.boxdim.z;
             
             
             // 5.b Calculate change in system energy due to insertion of new ghost atom 
@@ -489,9 +498,10 @@ int main(int argc, char* argv[])
             LJ.get_single_particle_contributions(system.coords, -1, widom_position, system.boxdim, ewidom, swidom);
             
             // 5.c Update the Widom factor
+            //check this! (deltaE portion)
             
-            widom_factor = exp((1/kB*temp)*(ewidom - energys))
-            widom_avg   += widom_factor;
+            widom_factor = exp((1/kB*temp)*(ewidom)); //unit check: ewidom is in JOULES, beta is in 1/(J/K * K), thus in 1/J, so the exp factor is unitless (yes!)
+            widom_avg   += widom_factor; //widom factor, and widom average, are unitless
             widom_trials++;
         }
         else
@@ -508,20 +518,24 @@ int main(int argc, char* argv[])
         
         delta_energy = enew_selected - eold_selected;
 
-        else if ( mtrand() < exp(-delta_energy/(kB*temp)) ) // Then accept
+        if ( mtrand() < exp(-delta_energy/(kB*temp)) ) // Then accept
         {
             // Then the system energy has decreased **or** our random number is less than our probability to accept
             // Update the system position, energy, and stress tensor, and number of accepted moves
+            //update selected atom's location
             system.coords[selected_atom].x = trial_position.x;
             system.coords[selected_atom].y = trial_position.y;
             system.coords[selected_atom].z = trial_position.z;
 
+            //add the change in energy caused by this particle perturbation to the total energy
             energy += delta_energy;
 
+            //update stress tensor - subtract the old stress and add the new stress!
             stensor.x = stensor.x - sold_selected.x + snew_selected.x;
             stensor.y = stensor.y - sold_selected.y + snew_selected.y;
             stensor.z = stensor.z - sold_selected.z + snew_selected.z;
 
+            //update the number of updated moves!    
             ++naccepted_moves;
 
             /*write this*/
@@ -529,8 +543,10 @@ int main(int argc, char* argv[])
 
         // Update maximum diplacement to target a 50% acceptance rate
         
+        //calculated the number of accepted moves - number of accepted moves divided by the number of loops (i+1 because C++ is zero indexed)
         fraction_accepted = float(naccepted_moves)/float(i+1);
         
+        //update the max displacement to target a 50% acceptance rate 
         max_displacement = update_max_displacement(fraction_accepted, system.boxdim.x, max_displacement);
 
         // print statistics if needed - don't forget to convert the stress tensor to pressure 
@@ -538,27 +554,26 @@ int main(int argc, char* argv[])
         
         //BUG - missing A2m - UNITS???
         //first term was originally numden*temp
-        double pressure_kinetic = (numden/A2m)*temp*kB/natoms;
-        double pressure_virial = 1.0/3.0/pow(system.boxdim.x*A2m,3.0)*(stensor.x + stensor.y + stensor.z)
-        pressure = pressure_kinetic + pressure_virial;
+        double pressure_kinetic = (numden/A2m)*temp*kB/natoms; //UNIT CHECK - numdem is in atoms / A^3 - divide by A2m to get atoms/m^3, multiply by K * J/K, so multiply by ENERGY (J * atoms / m^3), then divide by the number of atoms to get J/ m^3
+        double pressure_virial = 1.0/3.0/pow(system.boxdim.x*A2m,3.0)*(stensor.x + stensor.y + stensor.z); //UNIT CHEKC - stensors are all in JOULES - divide by volume of the box, which is the box.dim cubed, and is in ANGSTROMS, so convert to meters and cube - units in J/m^3
+        pressure = pressure_kinetic + pressure_virial; //PRESSURE IN J/m^3
         Cv       = 0; //calculate heat capacity
         double Cv_xs = 0;
         double Cv_ig = 0;
 
         if (i >= nequil) // Compute values for running averages, only using the equilibrated portion of the trajectory
         {
-            stat_avgE   += energy;
+            stat_avgE   += energy; //energy in JOULES
             stat_avgEsq += energy*energy;        
-            stat_avgP   += pressure/LJ.epsilon*pow(LJ.sigma,3.0); // Convert to reduced units! ********
+            stat_avgP   += pressure/LJ.epsilon*pow(LJ.sigma*A2m,3.0); // Convert to reduced units! ******** pressure in J/m^3, divide by joules, multiply by sigma^3** sigma is in angstroms, so must convert to meters!!
             nrunningav_moves++;
             
             double avgE   = stat_avgE /float(nrunningav_moves);
             double avgEsq = stat_avgEsq / float(nrunningav_moves);
             
-            double varE = avgE - avgEsq;
-            Cv_xs = pow(varE, 2)/(kB*pow(temp, 2));
-            Cv_ig = (3/2)*kB;
-            Cv = Cv_xs + Cv_ig;
+            double varE = avgEsq - pow(avgE, 2); //varE is in J^2
+            Cv_xs = varE/(kB*pow(temp, 2)); //J^2, divided by J/K * K^2, leaves Cv units to J/k (yes!)
+            //Cv_ig = (3/2)*kB;
         }    
            
         if ( (i+1) % iofrq == 0)
@@ -568,14 +583,14 @@ int main(int argc, char* argv[])
             cout << "Step:  " << setw(10) << left << i;
             cout << " NAcc:  " << setw(10) << left << setprecision(3) <<  naccepted_moves;
             cout << " fAcc:  " << setw(10) << left << fixed << setprecision(3) << fraction_accepted;
-            cout << " Maxd:  " << setw(10) << left << fixed << setprecision(5) << max_displacement;
-            cout << " E*/N:  " << setw(10) << left << fixed << setprecision(5) << energy/natoms/LJ.epsilon;
-            cout << " P*:     " << setw(10) << left << fixed << setprecision(5) << stat_avgP/float(nrunningav_moves);
-            cout << " P*cold: " << setw(10) << left << fixed << setprecision(5) <<  (stat_avgP - (nrunningav_moves*pressure_kinetic))/float(nrunningav_moves);
-            cout << " Mu*_xs: " << setw(10) << left << fixed << setprecision(5) << (-log(widom_factor/widom_trials)*kB*temp); 
-            cout << " Cv*/N_xs:  " << setw(15) << left << fixed << setprecision(5) << Cv_xs;
+            cout << " Maxd:  " << setw(10) << left << fixed << setprecision(5) << max_displacement; 
+            cout << " E*/N:  " << setw(10) << left << fixed << setprecision(5) << energy/natoms/LJ.epsilon; //energy per atom in reduced units - epsilon in JOULES
+            cout << " P*:     " << setw(10) << left << fixed << setprecision(5) << stat_avgP/float(nrunningav_moves); //total average pressure, in reduced units 
+            cout << " P*cold: " << setw(10) << left << fixed << setprecision(5) <<  (stat_avgP/float(nrunningav_moves) - pressure_kinetic/LJ.epsilon*pow(LJ.sigma*A2m, 3.0));
+            cout << " Mu*_xs: " << setw(10) << left << fixed << setprecision(5) << (-log(widom_avg/widom_trials)*kB*temp); //excess chemical potential
+            cout << " Cv*/N_xs:  " << setw(15) << left << fixed << setprecision(5) << Cv_xs/natoms; //heat capacity per atom, in J/(K*atom)
             cout << " E(kJ/mol): " << setw(10) << left << fixed << setprecision(3) << energy * 0.003814; // KJ/mol per K 
-            cout << " P(bar):    " << setw(10) << left << fixed << setprecision(3) << pressure * 0.003814 * 10.0e30 * 1000/(6.02*10.0e23)*1.0e-5; // KJ/mol/A^3 to bar
+            cout << " P(bar):    " << setw(10) << left << fixed << setprecision(3) << pressure*pow(A2m, 3) * 0.003814 * 10.0e30 * 1000/(6.02*10.0e23)*1.0e-5; // KJ/mol/A^3 to bar
             cout << endl;
         }
 
@@ -583,15 +598,15 @@ int main(int argc, char* argv[])
     
     stat_avgE    /= float(nrunningav_moves);
     stat_avgEsq  /= float(nrunningav_moves);
-    //TODO
-    Cv            =  Cv_xs/*write this, based on average energies - this should only be the dE/dT portion*/
+    //TODO - calculate the average heat capacity based on average energy???
+    Cv            =  (stat_avgEsq - pow(stat_avgE, 2))/(kB*pow(temp, 2));/*write this, based on average energies - this should only be the dE/dT portion*/
     stat_avgE    *= 1.0/natoms/LJ.epsilon;
 
     cout << "# Computed average properties: " << endl;
     cout << " # E*/N:  "      << setw(10) << left << fixed << setprecision(5) << stat_avgE << endl;
     cout << " # P*:     "     << setw(10) << left << fixed << setprecision(5) << stat_avgP / float(nrunningav_moves) << endl;
-    cout << " # Cv*/N_xs:   " << setw(15) << left << fixed << setprecision(5) << C/*write this - this is excess heat capacity per atom based on average energies*/ << endl;
-    cout << " # Mu_xs:  "     << setw(10) << left << fixed << setprecision(5) << /*write this - this is excess chemical potential*/ << endl;       
+    cout << " # Cv*/N_xs:   " << setw(15) << left << fixed << setprecision(5) << Cv/natoms << endl; //excess heat capacity per atom
+    cout << " # Mu_xs:  "     << setw(10) << left << fixed << setprecision(5) << -log(widom_avg/widom_trials)*kB*temp << endl; //excess chemical potential    
     
 }
 
