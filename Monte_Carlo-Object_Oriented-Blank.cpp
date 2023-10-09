@@ -47,7 +47,7 @@ double get_dist(const xyz & a1, const xyz & a2, const xyz & boxdim, xyz & rij_ve
     rij_vec.y = dy;
     rij_vec.z = dz;
 
-    double distance = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dy, 2));
+    double distance = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz, 2));
 
     return distance;
 }
@@ -247,15 +247,15 @@ void LJ_model::get_fij(double rij, const xyz & rij_vec, xyz & fij)
     //Force is the derivative of energy with respect to R!
     //units below in J/A!!!
     //power terms all have units of A^-1
-    fij.x = -4*epsilon*((-12*pow(sigma, 12)*pow(rij_vec.x, -13))+(6*pow(sigma, 6)*pow(rij_vec.x, -7)));
-    fij.y = -4*epsilon*((-12*pow(sigma, 12)*pow(rij_vec.y, -13))+(6*pow(sigma, 6)*pow(rij_vec.y, -7)));
-    fij.z = -4*epsilon*((-12*pow(sigma, 12)*pow(rij_vec.z, -13))+(6*pow(sigma, 6)*pow(rij_vec.z, -7)));
+    double fij_mag = -4*epsilon*((-12*pow(sigma, 12)*pow(rij, -13))+(6*pow(sigma, 6)*pow(rij, -7)));
 
-    //convert to J/m = N:
-    //J/A * 1/A2m = J/m
-    fij.x = fij.x/A2m;
-    fij.y = fij.y/A2m;
-    fij.z = fij.z/A2m;
+    //convet from J/A to J/m = N
+    fij_mag = fij_mag/A2m;
+
+    fij.x = fij_mag * (rij_vec.x/rij);
+    fij.y = fij_mag * (rij_vec.y/rij);
+    fij.z = fij_mag * (rij_vec.z/rij);
+
     //FORCES RETURNED IN J/m
     return;
 }
@@ -279,7 +279,7 @@ void LJ_model::get_single_particle_contributions(const vector<xyz> & coords, int
     static xyz    rij_vec;
 
     // Loop over all atoms. Within the loop:
-    for (int i = 0; i < 0; i++)
+    for (int i = 0; i < coords.size(); i++)
     {
         if(i == selected_atom){
             continue;
@@ -329,7 +329,7 @@ int main(int argc, char* argv[])
     string  atmtyp  = "Ar";         // Atom type (atomic symbol)
     double  molmass = 39.948;       // Mass of an particle of atmtyp (Atomic mass in the case of an argon atom)
     double  density = redden / pow(A2m,3.0) * pow(cm2m,3.0) / nav * molmass / pow(sigma,3.0);     // System density; Units: g/cm^3
-    double  numden;                 // System number density; Units: atoms/Ang^3 - will be calculated later on
+    //double  numden;                 // System number density; Units: atoms/Ang^3 - will be calculated later on
 
     double  temp    = 1.2*epsilon;  // Temperature, in K
     double  nsteps  = 5e6;          // Number of MC steps
@@ -405,9 +405,9 @@ int main(int argc, char* argv[])
             // if within the model cutoff
             LJ.get_fij(rij, rij_vec, force); //force of initialized system in NEWTONS
 
-            stensor.x += force.x * rij_vec.x; //stensor of initialized sytem in JOULES
-            stensor.y += force.y * rij_vec.y;
-            stensor.z += force.z * rij_vec.z;
+            stensor.x += force.x * rij_vec.x*A2m; //stensor of initialized sytem in JOULES
+            stensor.y += force.y * rij_vec.y*A2m;
+            stensor.z += force.z * rij_vec.z*A2m;
         }
     }
 
@@ -554,7 +554,7 @@ int main(int argc, char* argv[])
         
         //BUG - missing A2m - UNITS???
         //first term was originally numden*temp
-        double pressure_kinetic = (numden/A2m)*temp*kB/natoms; //UNIT CHECK - numdem is in atoms / A^3 - divide by A2m to get atoms/m^3, multiply by K * J/K, so multiply by ENERGY (J * atoms / m^3), then divide by the number of atoms to get J/ m^3
+        double pressure_kinetic = (system.numden/A2m)*temp*kB/natoms; //UNIT CHECK - numdem is in atoms / A^3 - divide by A2m to get atoms/m^3, multiply by K * J/K, so multiply by ENERGY (J * atoms / m^3), then divide by the number of atoms to get J/ m^3
         double pressure_virial = 1.0/3.0/pow(system.boxdim.x*A2m,3.0)*(stensor.x + stensor.y + stensor.z); //UNIT CHEKC - stensors are all in JOULES - divide by volume of the box, which is the box.dim cubed, and is in ANGSTROMS, so convert to meters and cube - units in J/m^3
         pressure = pressure_kinetic + pressure_virial; //PRESSURE IN J/m^3
         Cv       = 0; //calculate heat capacity
@@ -589,8 +589,8 @@ int main(int argc, char* argv[])
             cout << " P*cold: " << setw(10) << left << fixed << setprecision(5) <<  (stat_avgP/float(nrunningav_moves) - pressure_kinetic/LJ.epsilon*pow(LJ.sigma*A2m, 3.0));
             cout << " Mu*_xs: " << setw(10) << left << fixed << setprecision(5) << (-log(widom_avg/widom_trials)*kB*temp); //excess chemical potential
             cout << " Cv*/N_xs:  " << setw(15) << left << fixed << setprecision(5) << Cv_xs/natoms; //heat capacity per atom, in J/(K*atom)
-            cout << " E(kJ/mol): " << setw(10) << left << fixed << setprecision(3) << energy * 0.003814; // KJ/mol per K 
-            cout << " P(bar):    " << setw(10) << left << fixed << setprecision(3) << pressure*pow(A2m, 3) * 0.003814 * 10.0e30 * 1000/(6.02*10.0e23)*1.0e-5; // KJ/mol/A^3 to bar
+            cout << " E(kJ/mol): " << setw(10) << left << fixed << setprecision(3) << energy/natoms*nav/1000; // KJ/mol per K 
+            cout << " P(bar):    " << setw(10) << left << fixed << setprecision(3) << pressure / natoms / pow(10, 5); // KJ/mol/A^3 to bar
             cout << endl;
         }
 
