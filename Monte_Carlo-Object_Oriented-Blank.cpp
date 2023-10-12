@@ -57,13 +57,14 @@ double update_max_displacement(double fraction_accepted, double boxdim, double m
     /* Write code to update the maximum displacement based on current acceptance crtieria. 
     The function should return the the new maximum displacement.
     */
-    if(fraction_accepted >= 0.5){
-        max_displacement =  max_displacement*1.2; //if TOO MANY moves are accepted (i.e. the displacement is too short), then we want to increase max_displacement by 20%
+    if(fraction_accepted > 0.5 && max_displacement < 0.5*boxdim){
+        max_displacement =  max_displacement + max_displacement*0.2; //if TOO MANY moves are accepted (i.e. the displacement is too short), then we want to increase max_displacement by 20%
     }
 
-    if(fraction_accepted < 0.5){
-        max_displacement = max_displacement*0.8; //if TOO FEW moves are accepted (i.e. the displacement is too large), then we want to decrease max_displacement by 20% 
+    if(fraction_accepted <= 0.5 && max_displacement > 0.01*boxdim){
+        max_displacement = max_displacement - max_displacement*0.2; //if TOO FEW moves are accepted (i.e. the displacement is too large), then we want to decrease max_displacement by 20% 
     }
+    //add conditional for if maxd becomees 0 or half of box length *****
 
     return max_displacement;
 }
@@ -192,7 +193,7 @@ public:
     ///units for epsilon: e/Kb?
     
     double  sigma; //in ANGSTROMS
-    double  epsilon; //in JOULES (or rather, kB * Kelvin)
+    double  epsilon; //in kB * Kelvin) 0 - TO GET JOULES, MULTIPLY BY KB
     double  rcut; //radius - ANGSTROMS
     
     double  term1;   // Placeholder for (sigma/rij)^12
@@ -226,7 +227,7 @@ double LJ_model::get_eij(double rij)
 
     double sigmaOverR = sigma/rij; //unitless
 
-    return 4*epsilon*(pow(sigmaOverR, 12)-pow(sigmaOverR, 6)); //energy returned in JOULES
+    return 4*epsilon*(pow(sigmaOverR, 12)-pow(sigmaOverR, 6)); //energy returned in K * kB
 }
 
 void LJ_model::get_fij(double rij, const xyz & rij_vec, xyz & fij)
@@ -245,18 +246,15 @@ void LJ_model::get_fij(double rij, const xyz & rij_vec, xyz & fij)
     }
 
     //Force is the derivative of energy with respect to R!
-    //units below in J/A!!!
+    //units below in K*kB/A!!!
     //power terms all have units of A^-1
-    double fij_mag = -4*epsilon*((-12*pow(sigma, 12)*pow(rij, -13))+(6*pow(sigma, 6)*pow(rij, -7)));
-
-    //convet from J/A to J/m = N
-    fij_mag = fij_mag/A2m;
+    double fij_mag = -4*epsilon*((-12*pow(sigma, 12)/pow(rij, 13))+(6*pow(sigma, 6)/pow(rij, 7)));
 
     fij.x = fij_mag * (rij_vec.x/rij);
     fij.y = fij_mag * (rij_vec.y/rij);
     fij.z = fij_mag * (rij_vec.z/rij);
 
-    //FORCES RETURNED IN J/m
+    //FORCES RETURNED IN K*KB/A
     return;
 }
 
@@ -298,11 +296,11 @@ void LJ_model::get_single_particle_contributions(const vector<xyz> & coords, int
         //force in JOULES PER METER 
         get_fij(rij, rij_vec, force);
 
-        //stress in J/m (Newtons), multiply by rij_vec (ANGSTROMS) - need to convert rij to ANGSTROMS to get JOULES
-        //thus, sress is in JOULES
-        stress_selected.x += force.x * rij_vec.x * A2m;
-        stress_selected.y += force.y * rij_vec.y * A2m;
-        stress_selected.z += force.z * rij_vec.z * A2m;
+        //stress in K*kB/A , multiply by rij_vec (ANGSTROMS) - JOULES
+        //thus, sress is in K*kB
+        stress_selected.x += force.x * rij_vec.x;
+        stress_selected.y += force.y * rij_vec.y;
+        stress_selected.z += force.z * rij_vec.z;
     }
 }
 
@@ -322,7 +320,7 @@ int main(int argc, char* argv[])
     MTRand  mtrand(seed); // Seed the (psuedo) random number generator
     
     double  sigma   = 3.4;          // Units: Angstrom
-    double  epsilon = 120;          // Units: K*k_B (JOULES)
+    double  epsilon = 120;          // Units: K*k_B
     double  rcut    = 4*sigma;      // Model outer cutoff
     
     int     natoms  = 500;          // Number of atoms in the system
@@ -360,7 +358,8 @@ int main(int argc, char* argv[])
     
     //double check this!
     cout << "# reduc. density (rho*): " << redden << endl;
-    cout << "# reduc. temp (T*):      " << (temp*kB)/epsilon << endl;
+    cout << "# reduc. temp (T*):      " << temp/epsilon << endl;
+    //ENDED HERE - update all epsilons to epsilon*kB
 
     // Intialize the model - arguments are sigma (Angstroms), epsilon (K), and outer cutoff (Angstroms)
     
@@ -375,9 +374,9 @@ int main(int argc, char* argv[])
     
     double  energy = 0;         // Energy for the configuration, in JOULES
    
-    double widom_factor = 0;    // The exponential term in the Widom chemical potential expression
+    long double widom_factor = 0;    // The exponential term in the Widom chemical potential expression
     double widom_trials = 0;    // Number of Widom insertion attempts
-    double widom_avg    = 0;    // Average value of the wWidom factor
+    long double widom_avg    = 0;    // Average value of the wWidom factor
         
     double Eavg = 0;            // Average energy, in JOULES
     double Esqavg = 0;          // Square of average energy, in JOULES^2
@@ -399,15 +398,15 @@ int main(int argc, char* argv[])
             // Determine atom pair's contirbution to total system energy - remember to only perform the 
             // calculation if the pair distance is within the model cutoff
             double energy_ij = LJ.get_eij(rij);
-            energy += energy_ij; // energy in JOULES
+            energy += energy_ij; // energy in K*KB
 
             // Determine the atom pair's contribution to the total system pressure - again, only perform 
             // if within the model cutoff
-            LJ.get_fij(rij, rij_vec, force); //force of initialized system in NEWTONS
+            LJ.get_fij(rij, rij_vec, force); //force of initialized system in K*KB/A
 
-            stensor.x += force.x * rij_vec.x*A2m; //stensor of initialized sytem in JOULES
-            stensor.y += force.y * rij_vec.y*A2m;
-            stensor.z += force.z * rij_vec.z*A2m;
+            stensor.x += force.x * rij_vec.x; //stensor of initialized sytem in JOULES
+            stensor.y += force.y * rij_vec.y;
+            stensor.z += force.z * rij_vec.z;
         }
     }
 
@@ -475,7 +474,7 @@ int main(int argc, char* argv[])
         trial_position.z -= floor(trial_position.z/system.boxdim.z)*system.boxdim.z;      
         
         // 4. Determine the energy contribution of that particle with the system **in it's trial position**
-        //energy is in JOULES, stress is ALSO in JOULES
+        //energy is in K*kB, stress is ALSO in K*kB
         LJ.get_single_particle_contributions(system.coords, selected_atom, trial_position, system.boxdim, enew_selected, snew_selected);
 
         if (i >= nequil) // Only do Widom tests for the equilibrated portion of the simulation
@@ -499,10 +498,12 @@ int main(int argc, char* argv[])
             
             // 5.c Update the Widom factor
             //check this! (deltaE portion)
-            
-            widom_factor = exp((1/kB*temp)*(ewidom)); //unit check: ewidom is in JOULES, beta is in 1/(J/K * K), thus in 1/J, so the exp factor is unitless (yes!)
+    
+            widom_factor = exp(-(1/(temp))*(ewidom)); //unit check: ewidom is in K*KB, beta is in 1/(K * kB), so the exp factor is unitless (yes!)
             widom_avg   += widom_factor; //widom factor, and widom average, are unitless
             widom_trials++;
+            // cout << "widom_avg: " << widom_avg << endl;
+            // cout << "widom_trials: " << widom_trials << endl;
         }
         else
         {
@@ -518,7 +519,7 @@ int main(int argc, char* argv[])
         
         delta_energy = enew_selected - eold_selected;
 
-        if ( mtrand() < exp(-delta_energy/(kB*temp)) ) // Then accept
+        if ( mtrand() < exp(-delta_energy/temp)) // Then accept //delta_energy is in K*kB, denominator is in temp*kB, kB's cancel to just give energy/temp
         {
             // Then the system energy has decreased **or** our random number is less than our probability to accept
             // Update the system position, energy, and stress tensor, and number of accepted moves
@@ -554,25 +555,26 @@ int main(int argc, char* argv[])
         
         //BUG - missing A2m - UNITS???
         //first term was originally numden*temp
-        double pressure_kinetic = (system.numden/A2m)*temp*kB/natoms; //UNIT CHECK - numdem is in atoms / A^3 - divide by A2m to get atoms/m^3, multiply by K * J/K, so multiply by ENERGY (J * atoms / m^3), then divide by the number of atoms to get J/ m^3
-        double pressure_virial = 1.0/3.0/pow(system.boxdim.x*A2m,3.0)*(stensor.x + stensor.y + stensor.z); //UNIT CHEKC - stensors are all in JOULES - divide by volume of the box, which is the box.dim cubed, and is in ANGSTROMS, so convert to meters and cube - units in J/m^3
-        pressure = pressure_kinetic + pressure_virial; //PRESSURE IN J/m^3
+        double pressure_kinetic = (system.numden)*temp; //UNIT CHECK - numdem is in atoms / A^3 - multiply by T in K, treat as energy in units of K*kB divide by natoms, K*kB/A^3
+        double pressure_virial = 1.0/3.0/pow(system.boxdim.x,3.0)*(stensor.x + stensor.y + stensor.z); //UNIT CHEKC - stensors are all in K*KB - divide by volume of the box, which is the box.dim cubed, and is in ANGSTROMS, so units in K*kB/A^3
+        //CONSIDER changing to J/A^3 to get better numbers...
+        pressure = pressure_kinetic + pressure_virial; //PRESSURE IN K*kB/A^3
         Cv       = 0; //calculate heat capacity
         double Cv_xs = 0;
         double Cv_ig = 0;
 
         if (i >= nequil) // Compute values for running averages, only using the equilibrated portion of the trajectory
         {
-            stat_avgE   += energy; //energy in JOULES
-            stat_avgEsq += energy*energy;        
-            stat_avgP   += pressure/LJ.epsilon*pow(LJ.sigma*A2m,3.0); // Convert to reduced units! ******** pressure in J/m^3, divide by joules, multiply by sigma^3** sigma is in angstroms, so must convert to meters!!
+            stat_avgE   += energy; //energy in K*kB
+            stat_avgEsq += energy*energy; //K^2 *kB^2  
+            stat_avgP   += pressure/LJ.epsilon*pow(LJ.sigma,3.0); // Convert to reduced units! ******** pressure in K*kB/A^3, divide by K*kB (epsilon), multiply by sigma^3
             nrunningav_moves++;
             
             double avgE   = stat_avgE /float(nrunningav_moves);
             double avgEsq = stat_avgEsq / float(nrunningav_moves);
             
-            double varE = avgEsq - pow(avgE, 2); //varE is in J^2
-            Cv_xs = varE/(kB*pow(temp, 2)); //J^2, divided by J/K * K^2, leaves Cv units to J/k (yes!)
+            double varE = avgEsq - pow(avgE, 2); //varE is in K^2*kB^2
+            Cv_xs = varE/(pow(temp, 2)); //K^2*kB^2, divided by kB * K^2, leaves Cv units to K*kB/k which is just kB (J/K)(yes!)
             //Cv_ig = (3/2)*kB;
         }    
            
@@ -586,11 +588,12 @@ int main(int argc, char* argv[])
             cout << " Maxd:  " << setw(10) << left << fixed << setprecision(5) << max_displacement; 
             cout << " E*/N:  " << setw(10) << left << fixed << setprecision(5) << energy/natoms/LJ.epsilon; //energy per atom in reduced units - epsilon in JOULES
             cout << " P*:     " << setw(10) << left << fixed << setprecision(5) << stat_avgP/float(nrunningav_moves); //total average pressure, in reduced units 
-            cout << " P*cold: " << setw(10) << left << fixed << setprecision(5) <<  (stat_avgP/float(nrunningav_moves) - pressure_kinetic/LJ.epsilon*pow(LJ.sigma*A2m, 3.0));
-            cout << " Mu*_xs: " << setw(10) << left << fixed << setprecision(5) << (-log(widom_avg/widom_trials)*kB*temp); //excess chemical potential
-            cout << " Cv*/N_xs:  " << setw(15) << left << fixed << setprecision(5) << Cv_xs/natoms; //heat capacity per atom, in J/(K*atom)
-            cout << " E(kJ/mol): " << setw(10) << left << fixed << setprecision(3) << energy/natoms*nav/1000; // KJ/mol per K 
-            cout << " P(bar):    " << setw(10) << left << fixed << setprecision(3) << pressure / natoms / pow(10, 5); // KJ/mol/A^3 to bar
+            cout << " P*cold: " << setw(10) << left << fixed << setprecision(5) <<  (stat_avgP/float(nrunningav_moves) - pressure_kinetic/LJ.epsilon*pow(LJ.sigma, 3.0));
+            // cout << "widom_avg/widom_trials " << widom_avg/widom_trials;
+            cout << " Mu*_xs: " << setw(10) << left << fixed << setprecision(5) << (-log(widom_avg/widom_trials)*temp/LJ.epsilon); //excess chemical potential (reduced units)
+            cout << " Cv*/N_xs:  " << setw(15) << left << fixed << setprecision(5) << Cv_xs/LJ.epsilon*temp/natoms; //heat capacity per atom, in J/(K*atom)
+            cout << " E(kJ/mol): " << setw(10) << left << fixed << setprecision(3) << energy*kB/natoms*nav/1000; // KJ/mol per 
+            cout << " P(bar):    " << setw(10) << left << fixed << setprecision(3) << pressure*kB/pow(A2m, 3) / natoms / pow(10, 5); // KJ/mol/A^3 to bar
             cout << endl;
         }
 
@@ -598,15 +601,15 @@ int main(int argc, char* argv[])
     
     stat_avgE    /= float(nrunningav_moves);
     stat_avgEsq  /= float(nrunningav_moves);
-    //TODO - calculate the average heat capacity based on average energy???
-    Cv            =  (stat_avgEsq - pow(stat_avgE, 2))/(kB*pow(temp, 2));/*write this, based on average energies - this should only be the dE/dT portion*/
-    stat_avgE    *= 1.0/natoms/LJ.epsilon;
+    //TODO - calculate the average heat capacity based on average energy???w
+    Cv            =  (stat_avgEsq - pow(stat_avgE, 2))/(pow(temp, 2));/*write this, based on average energies - this should only be the dE/dT portion*/
+    stat_avgE    *= 1.0/natoms/(LJ.epsilon);
 
     cout << "# Computed average properties: " << endl;
     cout << " # E*/N:  "      << setw(10) << left << fixed << setprecision(5) << stat_avgE << endl;
     cout << " # P*:     "     << setw(10) << left << fixed << setprecision(5) << stat_avgP / float(nrunningav_moves) << endl;
-    cout << " # Cv*/N_xs:   " << setw(15) << left << fixed << setprecision(5) << Cv/natoms << endl; //excess heat capacity per atom
-    cout << " # Mu_xs:  "     << setw(10) << left << fixed << setprecision(5) << -log(widom_avg/widom_trials)*kB*temp << endl; //excess chemical potential    
+    cout << " # Cv*/N_xs:   " << setw(15) << left << fixed << setprecision(5) << Cv/LJ.epsilon*temp/natoms << endl; //excess heat capacity per atom (J/K)
+    cout << " # Mu*_xs:  "     << setw(10) << left << fixed << setprecision(5) << -log(widom_avg/widom_trials)*temp/LJ.epsilon << endl; //excess chemical potential (reduced)   
     
 }
 
