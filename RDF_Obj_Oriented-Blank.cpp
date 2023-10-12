@@ -16,7 +16,7 @@ R. K. Lindsey (2023)
 #include<string>
 #include<vector>
 #include<cmath>
-
+#include<sstream>
 
 using namespace std;
 
@@ -195,13 +195,41 @@ bool configuration::read_frame()
 
 double configuration::get_dist(int i, int j)
 {
-    // Compute and return the minimum image convention distance between a pair of particles i and j
+    // Compute and return the minimum image convention distance between a pair of particles i and 
 
+    double dx = (coords[j].x-coords[i].x) - (round((coords[j].x-coords[i].x)/boxdims.x) * boxdims.x);
+    double dy = (coords[j].y-coords[i].y) - (round((coords[j].y-coords[i].y)/boxdims.y) * boxdims.y);
+    double dz = (coords[j].z-coords[i].z) - (round((coords[j].z-coords[i].z)/boxdims.z) * boxdims.z);
+
+    double distance = sqrt(pow(dx, 2) + pow(dy, 2) + pow(dz, 2));
+
+    return distance;
 }
 
 int get_rdf_bin(int nbins, double binw, double dist)
 {
     // Determine the shell bin index the current distance falls in. 
+    if(dist == 0){
+        return 0;
+    }
+
+    //c++ is index 0, so the floor function of the distance divided by the bin width ought to give us the correct index under the following conditions:
+    // nbinw < dist <= (n+1)binw for the bin index n ** I use ceil()-1 so that a radial value of an integer multiple of binw lies in the bin **below the border on which it lies 
+
+    int bin_index = ceil(dist/binw)-1;
+
+    if(bin_index > (nbins-1)){
+        cout << "ERROR: bin_index is out of range for the number of bins!!" << endl;
+        cout << "bin_index: " << bin_index << endl;
+        cout << "nbins: " << nbins << endl;
+        cout << "dist: " << dist << endl;
+        exit(1);
+    }
+
+    // cout << "+2 added to bin_index: " << bin_index << endl;
+
+    return bin_index;
+
 }
 
 int main(int argc, char* argv[])
@@ -214,7 +242,7 @@ int main(int argc, char* argv[])
     
     // Set up the RDF calculation variables
     
-    int     nbins = stoi(argv[2]); //0.2;    // Number of bins (shells) for RDF compuation
+    int     nbins; // = stoi(argv[2]); //0.2;    // Number of bins (shells) for RDF compuation
     double  binw;           // Binwidth for RDF computation - determined based on boxlength
     
     vector<int> num_int;    // Stores histogram of atoms per shell - later used for RDF and number integral calculation
@@ -229,7 +257,7 @@ int main(int argc, char* argv[])
         if (nframes == 1) // Then set up RDF
         {
             binw = 0.2;
-            nbins = /* complete this */; // Set the number of bins based on the system box length and the requested bin width. 
+            nbins = ceil((frame.boxdims.x*0.5)/binw); // Set the number of bins based on the system box length and the requested bin width. 
             num_int.resize(nbins,0);
             
             cout << "Setting nbins, binw to: " << nbins << " " << binw << endl; 
@@ -246,9 +274,12 @@ int main(int argc, char* argv[])
                 double dist = frame.get_dist(i,j);
                 
                 // Determine which shell the current atom pair distance is in
+                // cout << "dist: " << dist << endl;
                 
-                if (/*complete this criteria for whether the current distance should be added to the num_int histogram*/)
+                if (dist < 0.5*frame.boxdims.x)
+                {
                     num_int[get_rdf_bin(nbins, binw, dist)] += 2; // Add two to account for both i and j
+                }            
             }
         }
     }
@@ -270,11 +301,11 @@ int main(int argc, char* argv[])
     
      for (int i=0; i<nbins-1; i++)
      {
-         double radius              = /* complete this */;  
-         double shell_vol           = /* complete this */;
-         double shell_density       = /* complete this */;
-         double shell_density_ideal = /* complete this */;
-         double avg_rdf             = /* complete this */;
+         double radius              = (i+1)*binw;  
+         double shell_vol           = (4/3)*pi*pow(radius, 3);
+         double shell_density       = num_int[i]/shell_vol/nframes;
+         double shell_density_ideal = frame.natoms/(frame.boxdims.x*frame.boxdims.y*frame.boxdims.z);
+         double avg_rdf             = shell_density/shell_density_ideal;
 
          avg_nint           += shell_density;
 
