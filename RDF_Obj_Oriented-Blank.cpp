@@ -303,8 +303,8 @@ int main(int argc, char* argv[])
      {
          double radius              = (i+1)*binw;  
          double shell_vol           = (4*pi*pow(radius, 2)) * binw;
-         double shell_density       = num_int[i]/shell_vol/nframes;
-         double shell_density_ideal = pow(frame.natoms, 2)/(frame.boxdims.x*frame.boxdims.y*frame.boxdims.z);
+         double shell_density       = num_int[i]/shell_vol/nframes/frame.natoms;
+         double shell_density_ideal = frame.natoms/(frame.boxdims.x*frame.boxdims.y*frame.boxdims.z); //num_int[] is on the order of N^2, since we count 2 atoms for every pair interaction
          double avg_rdf             = shell_density/shell_density_ideal;
 
          avg_nint           += shell_density;
