@@ -302,9 +302,9 @@ int main(int argc, char* argv[])
      for (int i=0; i<nbins-1; i++)
      {
          double radius              = (i+1)*binw;  
-         double shell_vol           = (4/3)*pi*pow(radius, 3);
+         double shell_vol           = (4*pi*pow(radius, 2)) * binw;
          double shell_density       = num_int[i]/shell_vol/nframes;
-         double shell_density_ideal = frame.natoms/(frame.boxdims.x*frame.boxdims.y*frame.boxdims.z);
+         double shell_density_ideal = pow(frame.natoms, 2)/(frame.boxdims.x*frame.boxdims.y*frame.boxdims.z);
          double avg_rdf             = shell_density/shell_density_ideal;
 
          avg_nint           += shell_density;
@@ -313,9 +313,7 @@ int main(int argc, char* argv[])
          
      }
     
-    rdfstream.close();
-    
-    
+    rdfstream.close();    
     
     
     
